@@ -6,21 +6,20 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
-import google.generativeai as genai
+from google import genai
 
-# Servidor Dummy para enganar a checagem de porta do Render
+# Servidor HTTP para o Render manter o serviço ativo
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Bot do Telegram ativo e rodando!")
+        self.wfile.write(b"Bot ativo!")
 
 def rodar_servidor_web():
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
     server.serve_forever()
 
-# Inicia o servidor em segundo plano
 threading.Thread(target=rodar_servidor_web, daemon=True).start()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -31,19 +30,21 @@ REPO_OWNER = "sidineidll-svg"
 REPO_NAME = "achadinhos-shopee"
 FILE_PATH = "index.html"
 
-if GEMINI_KEY:
-    genai.configure(api_key=GEMINI_KEY)
+# Inicializa o cliente Gemini atualizado
+client_gemini = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
 link_temporario = {}
 
 def gerar_detalhes_produto(link):
-    if not GEMINI_KEY:
+    if not client_gemini:
         return "Achadinho Shopee", "Confira no site", "Destaque", "Aproveite esta oferta especial com desconto!"
     try:
-        model = genai.GenerativeAI(model_name="gemini-1.5-flash")
         prompt = f"Escreva uma frase de vendas super curta (máximo 12 palavras) com emojis para o produto do link Shopee {link}."
-        resposta = model.generate_content(prompt)
-        return "Achadinho Shopee", "Oferta Especial", "Promoção", resposta.text.strip()
+        response = client_gemini.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+        return "Achadinho Shopee", "Oferta Especial", "Promoção", response.text.strip()
     except Exception as e:
         print("Erro Gemini:", e)
         return "Achadinho Shopee", "Confira no site", "Destaque", "Aproveite esta oferta imperdível na Shopee!"
