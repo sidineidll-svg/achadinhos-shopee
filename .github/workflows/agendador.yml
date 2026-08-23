@@ -1,27 +1,25 @@
-name: Executar Bot da Shopee
+name: Postar produtos automaticamente
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
-  workflow_dispatch:
+    - cron: "0 12 * * *"   # todo dia às 12:00 UTC (ajuste como quiser)
+  workflow_dispatch: {}    # permite rodar manualmente pelo botão "Run workflow"
 
 jobs:
-  rodar-bot:
+  postar:
     runs-on: ubuntu-latest
     steps:
-      - name: Baixar código
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - name: Configurar Python
-        uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.11"
 
       - name: Instalar dependências
         run: pip install requests google-generativeai
 
-      - name: Executar o Script Python
+      - name: Rodar script
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python bot.py
+        run: python atualizar_site.py
