@@ -17,7 +17,7 @@ def gerar_texto_ia(nome_produto, preco):
     if not GEMINI_KEY:
         return "Confira esta oferta incrível com desconto na Shopee!"
     try:
-        model = genai.GenerativeAI(model_name="gemini-1.5-flash")
+        model = genai.GenerativeModel(model_name="gemini-1.5-flash")
         prompt = f"Escreva uma frase super curta (máximo 12 palavras) e chamativa com emojis para vender o produto '{nome_produto}' por {preco}."
         resposta = model.generate_content(prompt)
         return resposta.text.strip()
@@ -36,25 +36,34 @@ produtos_para_postar = [
     }
 ]
 
+# Marcadores fixos que devem existir no index.html, dentro de #produtos-container
+INICIO_MARCADOR = "<!-- INICIO-CARDS -->"
+FIM_MARCADOR = "<!-- FIM-CARDS -->"
+
 def atualizar_site():
     url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    
+
     response = requests.get(url, headers=headers)
     if response.status_code != 200:
         print("Erro ao acessar index.html:", response.json())
         return
-        
+
     data = response.json()
     sha = data["sha"]
     conteudo_atual = base64.b64decode(data["content"]).decode('utf-8')
-    
+
+    if INICIO_MARCADOR not in conteudo_atual or FIM_MARCADOR not in conteudo_atual:
+        print(f"Erro: marcadores '{INICIO_MARCADOR}' / '{FIM_MARCADOR}' não encontrados no index.html.")
+        print("Adicione esses comentários dentro de #produtos-container antes de rodar o bot.")
+        return
+
     cards_html = ""
     for prod in produtos_para_postar:
         descricao_ia = gerar_texto_ia(prod['titulo'], prod['preco'])
         # Aplica o proxy para quebrar o bloqueio de imagem da Shopee
         img_proxy = f"https://images.weserv.nl/?url={prod['imagem_original']}"
-        
+
         cards_html += f"""
             <!-- CARD PRODUTO -->
             <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition">
@@ -71,30 +80,27 @@ def atualizar_site():
                     </div>
                 </div>
             </div>
-        """
+"""
 
-    inicio_container = '<div id="produtos-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">'
-    fim_container = '</div>'
-    
-    if inicio_container in conteudo_atual:
-        partes = conteudo_atual.split(inicio_container)
-        resto = partes[1].split(fim_container, 1)
-        novo_conteudo = partes[0] + inicio_container + "\n" + cards_html + "\n        " + fim_container + resto[1]
-    else:
-        print("Erro: container id='produtos-container' não encontrado no index.html")
-        return
+    # Insere os novos cards SEMPRE entre os marcadores, sem tocar no resto do arquivo.
+    antes, resto = conteudo_atual.split(INICIO_MARCADOR, 1)
+    _, depois = resto.split(FIM_MARCADOR, 1)
+
+    novo_conteudo = (
+        antes + INICIO_MARCADOR + "\n" + cards_html + FIM_MARCADOR + depois
+    )
 
     conteudo_encoded = base64.b64encode(novo_conteudo.encode('utf-8')).decode('utf-8')
-    
+
     payload = {
-        "message": "Bot: Imagem corrigida com proxy",
+        "message": "Bot: atualiza cards de produtos",
         "content": conteudo_encoded,
         "sha": sha
     }
-    
+
     res = requests.put(url, json=payload, headers=headers)
     if res.status_code == 200:
-        print("✅ Site atualizado com proxy de imagem!")
+        print("✅ Site atualizado com sucesso!")
     else:
         print("❌ Erro ao salvar no GitHub:", res.json())
 
