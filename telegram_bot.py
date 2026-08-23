@@ -2,9 +2,26 @@ import os
 import re
 import base64
 import requests
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 import google.generativeai as genai
+
+# Servidor Dummy para enganar a checagem de porta do Render
+class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot do Telegram ativo e rodando!")
+
+def rodar_servidor_web():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+    server.serve_forever()
+
+# Inicia o servidor em segundo plano
+threading.Thread(target=rodar_servidor_web, daemon=True).start()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GITHUB_TOKEN = os.getenv("GH_TOKEN")
@@ -17,7 +34,6 @@ FILE_PATH = "index.html"
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
 
-# Armazena temporariamente o link enviado por cada usuário
 link_temporario = {}
 
 def gerar_detalhes_produto(link):
@@ -106,14 +122,12 @@ async def receber_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = link_temporario[user_id]
     await update.message.reply_text("⏳ Processando imagem e enviando para o site...")
 
-    # Baixa a foto com maior resolução enviada
     photo_file = await update.message.photo[-1].get_file()
     photo_bytes = await photo_file.download_as_bytearray()
     
     img_b64 = base64.b64encode(photo_bytes).decode('utf-8')
     imagem_src = f"data:image/jpeg;base64,{img_b64}"
 
-    # Legenda opcional digitada junto com a foto (Título na linha 1, Preço na linha 2)
     caption = update.message.caption or ""
     if caption:
         partes = [p.strip() for p in caption.split("\n") if p.strip()]
@@ -142,5 +156,5 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), receber_link))
     app.add_handler(MessageHandler(filters.PHOTO, receber_foto))
-    print("Bot do Telegram iniciado e aguardando comandos...")
+    print("Bot do Telegram iniciado...")
     app.run_polling()
