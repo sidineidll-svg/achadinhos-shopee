@@ -27,14 +27,14 @@ def gerar_texto_ia(nome_produto, preco):
         print("Erro Gemini:", e)
         return "Aproveite esta oferta especial na Shopee!"
 
-# Produtos de exemplo (você pode atualizar essa lista sempre que quiser)
+# Produtos cadastrados para publicação
 produtos_para_postar = [
     {
         "titulo": "Mini Processador de Alho Elétrico Recarregável",
         "preco": "R$ 19,90",
         "imagem": "https://down-br.img.susercontent.com/file/sg-11134201-22100-1b77z6m5m5bv28",
-        "link_afiliado": "https://s.shopee.com.br/SEU_LINK_AQUI",
-        "categoria": "Cozinha Prática"
+        "link_afiliado": "https://s.shopee.com.br/3LQGcAGDFV",
+        "categoria": "Utilidades Domésticas"
     }
 ]
 
@@ -81,7 +81,7 @@ def atualizar_site():
         conteudo_encoded = base64.b64encode(novo_conteudo.encode('utf-8')).decode('utf-8')
         
         payload = {
-            "message": "Bot: Postando novo achadinho com texto via Gemini",
+            "message": "Bot: Postando produto com link oficial de afiliado",
             "content": conteudo_encoded,
             "sha": sha
         }
