@@ -1,10 +1,11 @@
 import os
 import logging
+import threading
 import requests
+from flask import Flask
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
-    CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
     filters,
@@ -19,83 +20,88 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Variáveis de Ambiente do Render
+# --- SERVIDOR FLASK (Para manter o Render Free ativo sem erro de porta) ---
+app_flask = Flask('')
+
+@app_flask.route('/')
+def home():
+    return "Bot de Ofertas está rodando no Render!"
+
+def rodar_flask():
+    port = int(os.environ.get("PORT", 8080))
+    app_flask.run(host='0.0.0.0', port=port)
+
+# Inicia o Flask em uma thread separada
+threading.Thread(target=rodar_flask, daemon=True).start()
+
+# --- VARIÁVEIS DE AMBIENTE ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 INSTAGRAM_USER = os.getenv("INSTAGRAM_USER")
 INSTAGRAM_PASS = os.getenv("INSTAGRAM_PASS")
 
-# Instância do Instagram em cache
 cliente_insta = None
 
 def obter_cliente_instagram():
-    """Conecta no Instagram sob demanda para evitar bloqueio 429 na inicialização."""
+    """Conecta no Instagram apenas quando necessário para evitar erro 429."""
     global cliente_insta
     if cliente_insta is not None:
         return cliente_insta
 
     cl = Client()
     
-    # 1. Tenta usar o session.json se existir no repositório
     if os.path.exists("session.json"):
         try:
             cl.load_settings("session.json")
             cl.login(INSTAGRAM_USER, INSTAGRAM_PASS)
-            logger.info("Login realizado via session.json")
+            logger.info("Login realizado via session.json com sucesso.")
             cliente_insta = cl
             return cliente_insta
         except Exception as e:
-            logger.warning(f"Erro ao usar session.json, tentando login normal: {e}")
+            logger.warning(f"Erro no session.json, tentando login normal: {e}")
 
-    # 2. Login padrão via usuário e senha
     try:
         cl.login(INSTAGRAM_USER, INSTAGRAM_PASS)
-        # Salva a sessão localmente para chamadas futuras
         cl.dump_settings("session.json")
-        logger.info("Login realizado com sucesso via usuário/senha.")
+        logger.info("Login realizado via usuário/senha.")
         cliente_insta = cl
         return cliente_insta
     except Exception as e:
-        logger.error(f"Falha ao autenticar no Instagram: {e}")
+        logger.error(f"Falha na conexão com o Instagram: {e}")
         raise e
 
-# Dicionário temporário para armazenar a oferta até o clique no botão
+# Dicionário temporário para dados do post
 oferta_temp = {}
 
 async def processar_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Recebe a mensagem/link no Telegram e exibe o menu de postagem."""
-    # Garante acesso apenas do administrador
+    """Recebe mensagens no Telegram e exibe o menu com os botões do Instagram."""
     if str(update.message.chat_id) != str(ADMIN_CHAT_ID):
         return
 
     texto_mensagem = update.message.text or update.message.caption or ""
 
-    # --- LÓGICA DE PROCESSAMENTO DA SHOPEE / IA ---
-    # Substitua pelas suas chamadas de API se necessário:
-    link_afiliado = "https://shope.ee/exemplo"  # Seu link gerado
-    legenda_gerada = f"🔥 Achado imperdível da Shopee!\n\n{texto_mensagem}"
+    # Lógica simples de montagem do post
+    link_afiliado = "https://shope.ee/exemplo"
+    legenda_gerada = f"🔥 Oferta imperdível!\n\n{texto_mensagem}"
     
-    # Imagem temporária de exemplo (se mandar foto, usa a foto enviada)
     caminho_imagem = "temp_post.jpg"
     if update.message.photo:
         foto = await update.message.photo[-1].get_file()
         await foto.download_to_drive(caminho_imagem)
     else:
-        # Imagem padrão para testes caso envie apenas texto/link
         url_placeholder = "https://via.placeholder.com/1080x1080.png"
         img_bytes = requests.get(url_placeholder).content
         with open(caminho_imagem, "wb") as f:
             f.write(img_bytes)
 
-    # Armazena na memória temporária
     oferta_temp['link'] = link_afiliado
     oferta_temp['legenda'] = legenda_gerada
     oferta_temp['imagem'] = caminho_imagem
 
-    # Monta os botões interativos
+    # Menu de botões para o Telegram
     teclado = [
         [
-            InlineKeyboardButton("📱 Postar no Story (Com Link)", callback_data="post_story"),
+            InlineKeyboardButton("📱 Postar no Story", callback_data="post_story"),
             InlineKeyboardButton("🎬 Postar no Reels", callback_data="post_reels")
         ],
         [
@@ -105,16 +111,15 @@ async def processar_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE)
     reply_markup = InlineKeyboardMarkup(teclado)
 
     await update.message.reply_text(
-        f"✅ **Oferta Processada com Sucesso!**\n\n"
+        f"✅ **Oferta Processada!**\n\n"
         f"**Legenda:**\n{legenda_gerada}\n\n"
-        f"**Link:** {link_afiliado}\n\n"
         f"Escolha o formato para publicar no Instagram:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
 
 async def executar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Callback acionado ao clicar em um dos botões do Telegram."""
+    """Posta o conteúdo no Instagram ao clicar em um dos botões."""
     query = update.callback_query
     await query.answer()
 
@@ -127,28 +132,27 @@ async def executar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
         insta = obter_cliente_instagram()
 
         if opcao == "post_story":
-            await query.edit_message_text("⏳ Publicando no **Story** do Instagram...")
+            await query.edit_message_text("⏳ Publicando no **Story**...")
             insta.photo_upload_to_story(caminho_img, caption="Achado Shopee!", link=link)
             await query.message.reply_text("🎉 Publicado no Story com sucesso!")
 
         elif opcao == "post_feed":
-            await query.edit_message_text("⏳ Publicando no **Feed** do Instagram...")
-            legenda_completa = f"{legenda}\n\n🛒 Link de compra no Story ou na Bio!"
+            await query.edit_message_text("⏳ Publicando no **Feed**...")
+            legenda_completa = f"{legenda}\n\n🛒 Link de compra nos Stories/Bio!"
             insta.photo_upload(caminho_img, caption=legenda_completa)
             await query.message.reply_text("🎉 Publicado no Feed com sucesso!")
 
         elif opcao == "post_reels":
-            await query.edit_message_text("⏳ Publicando no **Reels** do Instagram...")
-            legenda_completa = f"{legenda}\n\n🎬 Link de compra disponível nos Stories!"
+            await query.edit_message_text("⏳ Publicando no **Reels**...")
+            legenda_completa = f"{legenda}\n\n🎬 Confira o link nos Stories!"
             insta.clip_upload(caminho_img, caption=legenda_completa)
             await query.message.reply_text("🎉 Publicado no Reels com sucesso!")
 
     except Exception as e:
-        logger.error(f"Erro ao publicar no Instagram: {e}")
-        await query.message.reply_text(f"❌ Falha ao publicar no Instagram: {e}")
+        logger.error(f"Erro ao postar: {e}")
+        await query.message.reply_text(f"❌ Erro ao publicar no Instagram: {e}")
 
     finally:
-        # Limpeza do arquivo temporário
         if os.path.exists(caminho_img):
             os.remove(caminho_img)
 
@@ -158,11 +162,10 @@ def main():
 
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    # Handlers do Telegram
     app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO, processar_mensagem))
     app.add_handler(CallbackQueryHandler(executar_postagem))
 
-    logger.info("Bot iniciado e aguardando mensagens...")
+    logger.info("Bot rodando com sucesso no Render!")
     app.run_polling()
 
 if __name__ == "__main__":
