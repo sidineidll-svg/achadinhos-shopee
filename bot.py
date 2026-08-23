@@ -20,7 +20,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- SERVIDOR FLASK (Render Free) ---
+# --- SERVIDOR FLASK (Evita erro de porta no Render Free) ---
 app_flask = Flask('')
 
 @app_flask.route('/')
@@ -42,39 +42,41 @@ INSTAGRAM_PASS = os.getenv("INSTAGRAM_PASS")
 cliente_insta = None
 
 def obter_cliente_instagram():
-    """Inicializa o cliente instagrapi usando a sessão salva."""
+    """Conecta no Instagram gerenciando renovação de sessão e evitando bloqueio 429."""
     global cliente_insta
     if cliente_insta is not None:
         return cliente_insta
 
     cl = Client()
-    
-    # Define User-Agent de dispositivo móvel para evitar bloqueio de IP/API
+    # Emulação de dispositivo fixo para evitar flagging da Meta
     cl.set_user_agent("Instagram 269.0.0.18.75 Android (31/12; 480dpi; 1080x2340; samsung; SM-G991B; o1s; exynos2100; pt_BR; 453182348)")
 
+    # 1. Validação suave da sessão existente
     if os.path.exists("session.json"):
         try:
             cl.load_settings("session.json")
-            logger.info("Sessão carregada com sucesso do session.json")
+            cl.get_timeline_feed()
+            logger.info("Sessão ativa carregada com sucesso do session.json.")
             cliente_insta = cl
             return cliente_insta
         except Exception as e:
-            logger.warning(f"Erro ao carregar session.json: {e}")
+            logger.warning(f"Sessão do session.json expirou ({e}). Tentando reconectar...")
 
-    # Fallback de login com credenciais
+    # 2. Renovação via credenciais caso a sessão expire
     try:
+        logger.info("Autenticando no Instagram com usuário e senha...")
         cl.login(INSTAGRAM_USER, INSTAGRAM_PASS)
         cl.dump_settings("session.json")
         cliente_insta = cl
         return cliente_insta
     except Exception as e:
-        logger.error(f"Erro de autenticação no Instagram: {e}")
+        logger.error(f"Erro crítico de autenticação: {e}")
         raise e
 
 oferta_temp = {}
 
 async def processar_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Recebe as ofertas enviadas no Telegram."""
+    """Recebe as ofertas do Telegram e gera o menu de envio."""
     if str(update.message.chat_id) != str(ADMIN_CHAT_ID):
         return
 
@@ -110,15 +112,15 @@ async def processar_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE)
     reply_markup = InlineKeyboardMarkup(teclado)
 
     await update.message.reply_text(
-        f"✅ **Oferta Pronta!**\n\n"
+        f"✅ **Oferta Processada!**\n\n"
         f"**Legenda:**\n{legenda_gerada}\n\n"
-        f"Escolha o destino:",
+        f"Escolha onde publicar:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
 
 async def executar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Realiza a postagem no Instagram."""
+    """Realiza a publicação no formato selecionado."""
     query = update.callback_query
     await query.answer()
 
@@ -142,11 +144,11 @@ async def executar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif opcao == "post_reels":
             await query.edit_message_text("⏳ Publicando no **Reels**...")
-            insta.clip_upload(caminho_img, caption=f"{legenda}\n\n🎬 Confira no Story!")
+            insta.clip_upload(caminho_img, caption=f"{legenda}\n\n🎬 Confira nos Stories!")
             await query.message.reply_text("🎉 Publicado no Reels!")
 
     except Exception as e:
-        logger.error(f"Erro na publicação: {e}")
+        logger.error(f"Erro ao publicar: {e}")
         await query.message.reply_text(f"❌ Falha no envio: `{e}`", parse_mode="Markdown")
 
     finally:
@@ -158,7 +160,7 @@ async def gerenciar_erro(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     if not TELEGRAM_TOKEN:
-        raise ValueError("TELEGRAM_TOKEN ausente.")
+        raise ValueError("TELEGRAM_TOKEN ausente nas variáveis de ambiente.")
 
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
