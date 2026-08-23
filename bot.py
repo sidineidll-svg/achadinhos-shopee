@@ -25,13 +25,12 @@ def gerar_texto_ia(nome_produto, preco):
         print("Erro Gemini:", e)
         return "Aproveite esta oferta imperdível na Shopee!"
 
-# PRODUTOS OFICIAIS DO SEU SITE
+# PRODUTOS OFICIAIS
 produtos_para_postar = [
     {
         "titulo": "Shorts Feminino Mauricinho Linho Confortável",
         "preco": "R$ 29,90",
-        # Usamos o proxy images.weserv.nl para contornar o bloqueio de imagem da Shopee
-        "imagem": "https://images.weserv.nl/?url=https://down-br.img.susercontent.com/file/sg-11134201-7rd5y-lvj20a1q9r2q66",
+        "imagem_original": "https://down-br.img.susercontent.com/file/sg-11134201-7rd5y-lvj20a1q9r2q66",
         "link_afiliado": "https://s.shopee.com.br/3LQGcAGDFV",
         "categoria": "Moda Feminina"
     }
@@ -53,11 +52,13 @@ def atualizar_site():
     cards_html = ""
     for prod in produtos_para_postar:
         descricao_ia = gerar_texto_ia(prod['titulo'], prod['preco'])
+        # Aplica o proxy para quebrar o bloqueio de imagem da Shopee
+        img_proxy = f"https://images.weserv.nl/?url={prod['imagem_original']}"
         
         cards_html += f"""
             <!-- CARD PRODUTO -->
             <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition">
-                <img src="{prod['imagem']}" alt="{prod['titulo']}" class="w-full h-48 object-cover" referrerpolicy="no-referrer">
+                <img src="{img_proxy}" alt="{prod['titulo']}" class="w-full h-48 object-cover">
                 <div class="p-4">
                     <span class="text-xs font-semibold bg-orange-100 text-orange-600 px-2 py-1 rounded-full">{prod['categoria']}</span>
                     <h2 class="text-lg font-bold mt-2 text-gray-900">{prod['titulo']}</h2>
@@ -86,14 +87,14 @@ def atualizar_site():
     conteudo_encoded = base64.b64encode(novo_conteudo.encode('utf-8')).decode('utf-8')
     
     payload = {
-        "message": "Bot: Atualizado imagens com suporte anti-bloqueio",
+        "message": "Bot: Imagem corrigida com proxy",
         "content": conteudo_encoded,
         "sha": sha
     }
     
     res = requests.put(url, json=payload, headers=headers)
     if res.status_code == 200:
-        print("✅ Site e fotos atualizados com sucesso!")
+        print("✅ Site atualizado com proxy de imagem!")
     else:
         print("❌ Erro ao salvar no GitHub:", res.json())
 
