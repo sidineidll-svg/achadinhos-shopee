@@ -1,0 +1,18 @@
+{
+    "uuids": {
+        "phone_id": "9a2b8c3d-1e4f-5a6b-7c8d-9e0f1a2b3c4d",
+        "uuid": "9a2b8c3d-1e4f-5a6b-7c8d-9e0f1a2b3c4d",
+        "client_session_id": "9a2b8c3d-1e4f-5a6b-7c8d-9e0f1a2b3c4d",
+        "advertising_id": "9a2b8c3d-1e4f-5a6b-7c8d-9e0f1a2b3c4d",
+        "device_id": "android-9a2b8c3d1e4f5a6b"
+    },
+    "mid": "",
+    "authorization": "",
+    "sessionid": "70125168489%3A5PxC7ePBl29rx8%3A20%3AAYifb_U5PAsTGwAb3NZBNs9zumLS4jrKBKMFPCz0cg",
+    "ds_user_id": "70125168489",
+    "csrftoken": "",
+    "user_agent": "Instagram 269.0.0.18.75 Android (31/12; 480dpi; 1080x2340; samsung; SM-G991B; o1s; exynos2100; pt_BR; 453182348)",
+    "country": "BR",
+    "locale": "pt_BR",
+    "timezone_offset": -10800
+}
