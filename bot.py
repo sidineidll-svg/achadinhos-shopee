@@ -20,7 +20,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- SERVIDOR FLASK (Para manter o Render Free ativo sem erro de porta) ---
+# --- SERVIDOR FLASK ---
 app_flask = Flask('')
 
 @app_flask.route('/')
@@ -31,7 +31,6 @@ def rodar_flask():
     port = int(os.environ.get("PORT", 8080))
     app_flask.run(host='0.0.0.0', port=port)
 
-# Inicia o Flask em uma thread separada
 threading.Thread(target=rodar_flask, daemon=True).start()
 
 # --- VARIÁVEIS DE AMBIENTE ---
@@ -43,7 +42,7 @@ INSTAGRAM_PASS = os.getenv("INSTAGRAM_PASS")
 cliente_insta = None
 
 def obter_cliente_instagram():
-    """Conecta no Instagram apenas quando necessário para evitar erro 429."""
+    """Conecta no Instagram sob demanda."""
     global cliente_insta
     if cliente_insta is not None:
         return cliente_insta
@@ -54,51 +53,53 @@ def obter_cliente_instagram():
         try:
             cl.load_settings("session.json")
             cl.login(INSTAGRAM_USER, INSTAGRAM_PASS)
-            logger.info("Login realizado via session.json com sucesso.")
+            logger.info("Login realizado via session.json")
             cliente_insta = cl
             return cliente_insta
         except Exception as e:
-            logger.warning(f"Erro no session.json, tentando login normal: {e}")
+            logger.warning(f"Erro no session.json: {e}")
 
     try:
         cl.login(INSTAGRAM_USER, INSTAGRAM_PASS)
         cl.dump_settings("session.json")
-        logger.info("Login realizado via usuário/senha.")
+        logger.info("Login realizado via usuário/senha")
         cliente_insta = cl
         return cliente_insta
     except Exception as e:
-        logger.error(f"Falha na conexão com o Instagram: {e}")
+        logger.error(f"Falha no Instagram: {e}")
         raise e
 
-# Dicionário temporário para dados do post
 oferta_temp = {}
 
 async def processar_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Recebe mensagens no Telegram e exibe o menu com os botões do Instagram."""
+    """Recebe o link ou foto e gera a resposta no Telegram."""
+    # Garante que só você pode mandar comandos
     if str(update.message.chat_id) != str(ADMIN_CHAT_ID):
+        logger.warning(f"Acesso negado para o ID: {update.message.chat_id}")
         return
 
     texto_mensagem = update.message.text or update.message.caption or ""
-
-    # Lógica simples de montagem do post
-    link_afiliado = "https://shope.ee/exemplo"
-    legenda_gerada = f"🔥 Oferta imperdível!\n\n{texto_mensagem}"
-    
     caminho_imagem = "temp_post.jpg"
+
+    # Processa a foto recebida ou baixa uma imagem padrão para testes
     if update.message.photo:
         foto = await update.message.photo[-1].get_file()
         await foto.download_to_drive(caminho_imagem)
     else:
-        url_placeholder = "https://via.placeholder.com/1080x1080.png"
-        img_bytes = requests.get(url_placeholder).content
+        # Imagem placeholder para garantir que o arquivo exista
+        url_placeholder = "https://picsum.photos/1080/1080"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        img_bytes = requests.get(url_placeholder, headers=headers).content
         with open(caminho_imagem, "wb") as f:
             f.write(img_bytes)
+
+    link_afiliado = texto_mensagem if "http" in texto_mensagem else "https://shope.ee/exemplo"
+    legenda_gerada = f"🔥 Achado da Shopee!\n\n{texto_mensagem}"
 
     oferta_temp['link'] = link_afiliado
     oferta_temp['legenda'] = legenda_gerada
     oferta_temp['imagem'] = caminho_imagem
 
-    # Menu de botões para o Telegram
     teclado = [
         [
             InlineKeyboardButton("📱 Postar no Story", callback_data="post_story"),
@@ -113,13 +114,13 @@ async def processar_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(
         f"✅ **Oferta Processada!**\n\n"
         f"**Legenda:**\n{legenda_gerada}\n\n"
-        f"Escolha o formato para publicar no Instagram:",
+        f"Escolha o formato para publicar:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
 
 async def executar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Posta o conteúdo no Instagram ao clicar em um dos botões."""
+    """Realiza o envio para o Instagram."""
     query = update.callback_query
     await query.answer()
 
@@ -138,34 +139,47 @@ async def executar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif opcao == "post_feed":
             await query.edit_message_text("⏳ Publicando no **Feed**...")
-            legenda_completa = f"{legenda}\n\n🛒 Link de compra nos Stories/Bio!"
+            legenda_completa = f"{legenda}\n\n🛒 Link no Story ou na Bio!"
             insta.photo_upload(caminho_img, caption=legenda_completa)
             await query.message.reply_text("🎉 Publicado no Feed com sucesso!")
 
         elif opcao == "post_reels":
             await query.edit_message_text("⏳ Publicando no **Reels**...")
-            legenda_completa = f"{legenda}\n\n🎬 Confira o link nos Stories!"
+            legenda_completa = f"{legenda}\n\n🎬 Link nos Stories!"
             insta.clip_upload(caminho_img, caption=legenda_completa)
             await query.message.reply_text("🎉 Publicado no Reels com sucesso!")
 
     except Exception as e:
-        logger.error(f"Erro ao postar: {e}")
-        await query.message.reply_text(f"❌ Erro ao publicar no Instagram: {e}")
+        logger.error(f"Erro ao postar no Instagram: {e}")
+        await query.message.reply_text(f"❌ Erro ao publicar: {e}")
 
     finally:
         if os.path.exists(caminho_img):
             os.remove(caminho_img)
 
+async def gerenciar_erro(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Captura exceções globais e envia aviso no log e no chat."""
+    logger.error(msg="Exceção capturada no bot:", exc_info=context.error)
+    if isinstance(update, Update) and update.effective_message:
+        await update.effective_message.reply_text(
+            f"⚠️ Ocorreu um erro ao processar o comando:\n`{context.error}`",
+            parse_mode="Markdown"
+        )
+
 def main():
     if not TELEGRAM_TOKEN:
-        raise ValueError("TELEGRAM_TOKEN não configurado nas Variáveis do Render.")
+        raise ValueError("TELEGRAM_TOKEN não configurado no Render.")
 
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
+    # Handlers
     app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO, processar_mensagem))
     app.add_handler(CallbackQueryHandler(executar_postagem))
+    
+    # Registra o capturador global de erros
+    app.add_error_handler(gerenciar_erro)
 
-    logger.info("Bot rodando com sucesso no Render!")
+    logger.info("Bot rodando e monitorando erros...")
     app.run_polling()
 
 if __name__ == "__main__":
