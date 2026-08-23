@@ -5,6 +5,7 @@ import google.generativeai as genai
 
 GITHUB_TOKEN = os.getenv("GH_TOKEN")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+IMGBB_KEY = os.getenv("IMGBB_API_KEY")
 
 REPO_OWNER = "sidineidll-svg"
 REPO_NAME = "achadinhos-shopee"
@@ -25,42 +26,37 @@ def gerar_texto_ia(nome_produto, preco):
         print("Erro Gemini:", e)
         return "Aproveite esta oferta imperdível na Shopee!"
 
-def salvar_imagem_no_github(url_imagem, nome_arquivo):
-    """Baixa a imagem da Shopee com Headers de navegador e salva no repositório"""
-    headers_browser = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Referer": "https://shopee.com.br/"
-    }
-    
-    res = requests.get(url_imagem, headers=headers_browser)
-    if res.status_code == 200:
-        img_base64 = base64.b64encode(res.content).decode('utf-8')
-        path_github = f"imagens/{nome_arquivo}"
-        api_url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{path_github}"
+def hospedar_imagem_imgbb(url_shopee):
+    """Baixa a imagem da Shopee e faz upload para o ImgBB para ter um link 100% público"""
+    if not IMGBB_KEY:
+        print("Aviso: IMGBB_API_KEY não configurada. Usando imagem original.")
+        return url_shopee
         
-        headers_gh = {"Authorization": f"token {GITHUB_TOKEN}"}
-        
-        # Checa se a imagem já existe para pegar o SHA
-        check = requests.get(api_url, headers=headers_gh)
-        sha = check.json().get("sha") if check.status_code == 200 else None
-        
-        payload = {
-            "message": f"Bot: Salva imagem {nome_arquivo}",
-            "content": img_base64
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://shopee.com.br/"
         }
-        if sha:
-            payload["sha"] = sha
+        res_img = requests.get(url_shopee, headers=headers)
+        if res_img.status_code == 200:
+            img_b64 = base64.b64encode(res_img.content).decode('utf-8')
             
-        requests.put(api_url, json=payload, headers=headers_gh)
-        return f"https://raw.githubusercontent.com/{REPO_OWNER}/{REPO_NAME}/main/imagens/{nome_arquivo}"
-    else:
-        print("Erro ao baixar imagem original da Shopee:", res.status_code)
-        return url_imagem
+            url_api = f"https://api.imgbb.com/1/upload?key={IMGBB_KEY}"
+            payload = {"image": img_b64}
+            
+            res_upload = requests.post(url_api, data=payload)
+            if res_upload.status_code == 200:
+                link_direto = res_upload.json()['data']['url']
+                print(f"✅ Imagem hospedada no ImgBB com sucesso: {link_direto}")
+                return link_direto
+    except Exception as e:
+        print("Erro no upload do ImgBB:", e)
+        
+    return url_shopee
 
 # PRODUTOS OFICIAIS
 produtos_para_postar = [
     {
-        "id": "short_linho",
         "titulo": "Shorts Feminino Mauricinho Linho Confortável",
         "preco": "R$ 29,90",
         "imagem_original": "https://down-br.img.susercontent.com/file/sg-11134201-7rd5y-lvj20a1q9r2q66",
@@ -86,14 +82,13 @@ def atualizar_site():
     for prod in produtos_para_postar:
         descricao_ia = gerar_texto_ia(prod['titulo'], prod['preco'])
         
-        # Baixa e salva a imagem localmente dentro do seu repositório GitHub
-        nome_img = f"{prod['id']}.jpg"
-        img_local_url = salvar_imagem_no_github(prod['imagem_original'], nome_img)
+        # Gera o link público hospedado sem bloqueios
+        img_publica = hospedar_imagem_imgbb(prod['imagem_original'])
         
         cards_html += f"""
             <!-- CARD PRODUTO -->
             <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition">
-                <img src="{img_local_url}" alt="{prod['titulo']}" class="w-full h-48 object-cover">
+                <img src="{img_publica}" alt="{prod['titulo']}" class="w-full h-48 object-cover">
                 <div class="p-4">
                     <span class="text-xs font-semibold bg-orange-100 text-orange-600 px-2 py-1 rounded-full">{prod['categoria']}</span>
                     <h2 class="text-lg font-bold mt-2 text-gray-900">{prod['titulo']}</h2>
@@ -122,14 +117,14 @@ def atualizar_site():
     conteudo_encoded = base64.b64encode(novo_conteudo.encode('utf-8')).decode('utf-8')
     
     payload = {
-        "message": "Bot: Imagem hospedada localmente no GitHub",
+        "message": "Bot: Imagens integradas via ImgBB",
         "content": conteudo_encoded,
         "sha": sha
     }
     
     res = requests.put(url, json=payload, headers=headers)
     if res.status_code == 200:
-        print("✅ Imagem salva internamente e site atualizado!")
+        print("✅ Site atualizado com imagens livres de bloqueio!")
     else:
         print("❌ Erro ao salvar no GitHub:", res.json())
 
