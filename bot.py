@@ -20,12 +20,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- SERVIDOR FLASK ---
+# --- SERVIDOR FLASK (Render Free) ---
 app_flask = Flask('')
 
 @app_flask.route('/')
 def home():
-    return "Bot de Ofertas está rodando no Render!"
+    return "Bot de Ofertas Ativo!"
 
 def rodar_flask():
     port = int(os.environ.get("PORT", 8080))
@@ -42,51 +42,49 @@ INSTAGRAM_PASS = os.getenv("INSTAGRAM_PASS")
 cliente_insta = None
 
 def obter_cliente_instagram():
-    """Conecta no Instagram sob demanda."""
+    """Inicializa o cliente instagrapi usando a sessão salva."""
     global cliente_insta
     if cliente_insta is not None:
         return cliente_insta
 
     cl = Client()
     
+    # Define User-Agent de dispositivo móvel para evitar bloqueio de IP/API
+    cl.set_user_agent("Instagram 269.0.0.18.75 Android (31/12; 480dpi; 1080x2340; samsung; SM-G991B; o1s; exynos2100; pt_BR; 453182348)")
+
     if os.path.exists("session.json"):
         try:
             cl.load_settings("session.json")
-            cl.login(INSTAGRAM_USER, INSTAGRAM_PASS)
-            logger.info("Login realizado via session.json")
+            logger.info("Sessão carregada com sucesso do session.json")
             cliente_insta = cl
             return cliente_insta
         except Exception as e:
-            logger.warning(f"Erro no session.json: {e}")
+            logger.warning(f"Erro ao carregar session.json: {e}")
 
+    # Fallback de login com credenciais
     try:
         cl.login(INSTAGRAM_USER, INSTAGRAM_PASS)
         cl.dump_settings("session.json")
-        logger.info("Login realizado via usuário/senha")
         cliente_insta = cl
         return cliente_insta
     except Exception as e:
-        logger.error(f"Falha no Instagram: {e}")
+        logger.error(f"Erro de autenticação no Instagram: {e}")
         raise e
 
 oferta_temp = {}
 
 async def processar_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Recebe o link ou foto e gera a resposta no Telegram."""
-    # Garante que só você pode mandar comandos
+    """Recebe as ofertas enviadas no Telegram."""
     if str(update.message.chat_id) != str(ADMIN_CHAT_ID):
-        logger.warning(f"Acesso negado para o ID: {update.message.chat_id}")
         return
 
     texto_mensagem = update.message.text or update.message.caption or ""
     caminho_imagem = "temp_post.jpg"
 
-    # Processa a foto recebida ou baixa uma imagem padrão para testes
     if update.message.photo:
         foto = await update.message.photo[-1].get_file()
         await foto.download_to_drive(caminho_imagem)
     else:
-        # Imagem placeholder para garantir que o arquivo exista
         url_placeholder = "https://picsum.photos/1080/1080"
         headers = {'User-Agent': 'Mozilla/5.0'}
         img_bytes = requests.get(url_placeholder, headers=headers).content
@@ -112,15 +110,15 @@ async def processar_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE)
     reply_markup = InlineKeyboardMarkup(teclado)
 
     await update.message.reply_text(
-        f"✅ **Oferta Processada!**\n\n"
+        f"✅ **Oferta Pronta!**\n\n"
         f"**Legenda:**\n{legenda_gerada}\n\n"
-        f"Escolha o formato para publicar:",
+        f"Escolha o destino:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
 
 async def executar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Realiza o envio para o Instagram."""
+    """Realiza a postagem no Instagram."""
     query = update.callback_query
     await query.answer()
 
@@ -135,51 +133,39 @@ async def executar_postagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if opcao == "post_story":
             await query.edit_message_text("⏳ Publicando no **Story**...")
             insta.photo_upload_to_story(caminho_img, caption="Achado Shopee!", link=link)
-            await query.message.reply_text("🎉 Publicado no Story com sucesso!")
+            await query.message.reply_text("🎉 Publicado no Story!")
 
         elif opcao == "post_feed":
             await query.edit_message_text("⏳ Publicando no **Feed**...")
-            legenda_completa = f"{legenda}\n\n🛒 Link no Story ou na Bio!"
-            insta.photo_upload(caminho_img, caption=legenda_completa)
-            await query.message.reply_text("🎉 Publicado no Feed com sucesso!")
+            insta.photo_upload(caminho_img, caption=f"{legenda}\n\n🛒 Link no Story/Bio!")
+            await query.message.reply_text("🎉 Publicado no Feed!")
 
         elif opcao == "post_reels":
             await query.edit_message_text("⏳ Publicando no **Reels**...")
-            legenda_completa = f"{legenda}\n\n🎬 Link nos Stories!"
-            insta.clip_upload(caminho_img, caption=legenda_completa)
-            await query.message.reply_text("🎉 Publicado no Reels com sucesso!")
+            insta.clip_upload(caminho_img, caption=f"{legenda}\n\n🎬 Confira no Story!")
+            await query.message.reply_text("🎉 Publicado no Reels!")
 
     except Exception as e:
-        logger.error(f"Erro ao postar no Instagram: {e}")
-        await query.message.reply_text(f"❌ Erro ao publicar: {e}")
+        logger.error(f"Erro na publicação: {e}")
+        await query.message.reply_text(f"❌ Falha no envio: `{e}`", parse_mode="Markdown")
 
     finally:
         if os.path.exists(caminho_img):
             os.remove(caminho_img)
 
 async def gerenciar_erro(update: object, context: ContextTypes.DEFAULT_TYPE):
-    """Captura exceções globais e envia aviso no log e no chat."""
-    logger.error(msg="Exceção capturada no bot:", exc_info=context.error)
-    if isinstance(update, Update) and update.effective_message:
-        await update.effective_message.reply_text(
-            f"⚠️ Ocorreu um erro ao processar o comando:\n`{context.error}`",
-            parse_mode="Markdown"
-        )
+    logger.error(msg="Exceção capturada:", exc_info=context.error)
 
 def main():
     if not TELEGRAM_TOKEN:
-        raise ValueError("TELEGRAM_TOKEN não configurado no Render.")
+        raise ValueError("TELEGRAM_TOKEN ausente.")
 
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    # Handlers
     app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO, processar_mensagem))
     app.add_handler(CallbackQueryHandler(executar_postagem))
-    
-    # Registra o capturador global de erros
     app.add_error_handler(gerenciar_erro)
 
-    logger.info("Bot rodando e monitorando erros...")
     app.run_polling()
 
 if __name__ == "__main__":
